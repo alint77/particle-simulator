@@ -15,20 +15,22 @@ we'll ignore the MPI implementation for now.\
 compile command:\
 gcc 'filename.c' -O{0,fast} -lm ({-fopenmp} for OpenMP) ({-mavx -mfma} for SIMD)\
 
-BASELINE PERFORMANCE FOR 20k PARTICLES: \
+# BASELINE PERFORMANCE FOR 20k PARTICLES: \
 
 md-serial-org:\
 -O0:    102.1s\
 -Ofast: 44.5s\
+-Ofast -march=skylake: 37.34s\
 \
 md-OpenMP-org:\
 -O0:    22.93s\
--Ofast: 8.01s \
+-Ofast: 8.01s  
 
-REFERENCE CENTRE OF MASS:\
+# REFERENCE CENTRE OF MASS:\
 (-0.09509,-0.16562,49.64602)\
 (This result is treated as the ground truth, thus optimised runs must always result in these values)\
 \
+# NO VECTORISATION:
 Optimisation process for the serial implementation was started by removing extra/irrelevent variables:\
     old_mass is completely obsolete and was removed.\
     totalMass now gets calculated inside the init function.\
@@ -49,10 +51,13 @@ The results after:\
 The original nested loop iterates over each particle twice, which is not ideal. This can be fixed by setting j=i+1 and updating velocity values of j in addition to i during each iteration (should be noted that the force to particle j is applied in the opposite direction). This halves the total number of iterations in the main loop.\
 \
 Results:\
--O0:    36.12s (+48.0%) (+182.6%)\
--Ofast: 15.32s (+24.8%) (+190.4%)\
+-O0:                    36.12s (+48.0%) (+182.6%)\
+-Ofast:                 15.32s (+24.8%) (+190.4%)\
+-Ofast -march=skylake:  10.84s (------) (+244.4%)\
+\
+# VECTORISATION:
+So far we've been able to achieve almost 3x speedup of our code without implementing any level of parallelisaton. Now we move one to implementing SIMD AVX2 and FMA intrinsics.\
+\
+First, in order to be able to use store and load intrinsic functions, malloc is needed for our arrays. In this section we first benchmark unaligned memory allocation, then use aligned_alloc to measure the improvement.\
 
-
-
-
-
+We start by vectorising the array copy process associated with old_x,old_y,old_z. Then we'll
