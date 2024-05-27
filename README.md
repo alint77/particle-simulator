@@ -15,7 +15,7 @@ we'll ignore the MPI implementation for now.\
 compile command:\
 gcc 'filename.c' -O{0,fast} -lm ({-fopenmp} for OpenMP) ({-mavx -mfma} for SIMD)\
 
-BASELINE PERFORMANCE FOR 20k PARTICLES:\
+BASELINE PERFORMANCE FOR 20k PARTICLES: \
 
 md-serial-org:\
 -O0:    102.1s\
@@ -23,7 +23,7 @@ md-serial-org:\
 \
 md-OpenMP-org:\
 -O0:    22.93s\
--Ofast: 8.01s\
+-Ofast: 8.01s \
 
 REFERENCE CENTRE OF MASS:\
 (-0.09509,-0.16562,49.64602)\
