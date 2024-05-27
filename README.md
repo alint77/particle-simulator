@@ -28,11 +28,14 @@ md-OpenMP-org:\
 
 # REFERENCE CENTRE OF MASS:\
 (-0.09509,-0.16562,49.64602)\
+(-0.0950871241,-0.1656206186,49.6460167823)\
+(-0.095087124099446848624062,-0.165620618570155336835015,49.646016782290885771544708)\
+
 (This result is treated as the ground truth, thus optimised runs must always result in these values)\
 \
 # NO VECTORISATION:
 Optimisation process for the serial implementation was started by removing extra/irrelevent variables:\
-    old_mass is completely obsolete and was removed.\
+    old_mass,old_x,old_y,old_z were completely obsolete and were removed along with the loop to copy old positions.\
     totalMass now gets calculated inside the init function.\
     the calc_centre_mass function ran twice for no reason so the outer loop was removed.\
     the nuumber of particles are set at compile time so there's no reason to allocate heap memory. every malloc was removed.\
@@ -59,5 +62,6 @@ Results:\
 So far we've been able to achieve almost 3x speedup of our code without implementing any level of parallelisaton. Now we move one to implementing SIMD AVX2 and FMA intrinsics.\
 \
 First, in order to be able to use store and load intrinsic functions, malloc is needed for our arrays. In this section we first benchmark unaligned memory allocation, then use aligned_alloc to measure the improvement.\
-
-We start by vectorising the array copy process associated with old_x,old_y,old_z. Then we'll
+\
+We start by vectorising the array copy process associated with old_x,old_y,old_z. Then we move on to the main nested loop. here we will do a 1:1 translation of the arithmatic operations to their SIMD counterparts.\
+Then we move on to reducing the total number of arithmatic operations. for example using one fmadd instruction instead of a sum and a mul. 

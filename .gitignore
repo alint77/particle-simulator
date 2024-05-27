@@ -1,2 +1,4 @@
 *.out
 setPL.sh
+perf.data
+perf.data.old

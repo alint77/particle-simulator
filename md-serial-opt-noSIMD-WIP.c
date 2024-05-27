@@ -81,8 +81,9 @@ int main(int argc, char *argv[])
     for (i = 0; i < NUM; i++)
     {
       // calc forces on body i due to particles (j != i)
-      for (j = i+1; j < NUM; j++)
+      for (j = 0; j < NUM; j++)
       {
+        if(j==i) continue;
         
         dx = old_x[j] - x[i];
         dy = old_y[j] - y[i];
@@ -93,8 +94,10 @@ int main(int argc, char *argv[])
 
         // F = GRAVCONST * mass[i] * mass[j] / (d * d);
         // temp_z = GRAVCONST / (d * d * d);
+
+
         mult_i = GRAVCONST * mass[j]/(d*d*d);
-        mult_j = -GRAVCONST * mass[i]/(d*d*d);
+        // mult_j = -GRAVCONST * mass[i]/(d*d*d);
 
         // calculate acceleration due to the force, F
 
@@ -107,15 +110,15 @@ int main(int argc, char *argv[])
         vy[i] += mult_i * dy;
         vz[i] += mult_i * dz;
 
-        vx[j] += mult_j * dx;
-        vy[j] += mult_j * dy;
-        vz[j] += mult_j * dz;
+        // vx[j] += mult_j * dx;
+        // vy[j] += mult_j * dy;
+        // vz[j] += mult_j * dz;
       }
 
       // calc new position
-      x[i] = old_x[i] + vx[i];
-      y[i] = old_y[i] + vy[i];
-      z[i] = old_z[i] + vz[i];
+      x[i] = old_x[i]+ vx[i];
+      y[i] = old_y[i]+ vy[i];
+      z[i] = old_z[i]+ vz[i];
 
     } // end of LOOP 2
     // DEBUG: output_particles(x,y,z, vx,vy,vz, mass, NUM);
@@ -131,7 +134,7 @@ int main(int argc, char *argv[])
   printf("Time to init+solve %d molecules for %d timesteps is %g seconds\n", NUM, TS, WALLtimeTaken);
   // output a metric (centre of mass) for checking
   calc_centre_mass(com, x, y, z, mass, totalMass, NUM);
-  printf("Centre of mass = (%.5f,%.5f,%.5f)\n", com[0], com[1], com[2]);
+  printf("Centre of mass = (%.24f,%.24f,%.24f)\n", com[0], com[1], com[2]);
 } // main
 
 int init(double *mass, double *x, double *y, double *z, double *vx, double *vy, double *vz, double *totalMass)
