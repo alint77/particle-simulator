@@ -21,7 +21,7 @@ helper.o: helper.c particles.h
 	$(CC) $(CFLAGS) -c helper.c
 
 # Assemble NASM source files
-compute.o: compute.asm
+compute.o: compute_simd.asm
 	$(NASM) -f elf64 -g compute_simd.asm -o compute.o -O2
 
 clean:
