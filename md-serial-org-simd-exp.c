@@ -118,13 +118,13 @@ int main(int argc, char *argv[])
     for (i = 0; i < num; i++)
     {
       
-
+      double zero = 0.0;
       __m256d xi = _mm256_broadcast_sd(&x[i]);
       __m256d yi = _mm256_broadcast_sd(&y[i]);
       __m256d zi = _mm256_broadcast_sd(&z[i]);
-      __m256d vxi = _mm256_broadcast_sd(&vx[i]); // also acts as accumulator for the acceleration caused by other particles in the according axis
-      __m256d vyi = _mm256_broadcast_sd(&vy[i]); // also acts as accumulator for the acceleration caused by other particles in the according axis
-      __m256d vzi = _mm256_broadcast_sd(&vz[i]); // also acts as accumulator for the acceleration caused by other particles in the according axis
+      __m256d axi = _mm256_set1_pd(0.0); // acts as accumulator for the acceleration caused by other particles in the according axis on i 
+      __m256d ayi = _mm256_set1_pd(0.0); // acts as accumulator for the acceleration caused by other particles in the according axis on i
+      __m256d azi = _mm256_set1_pd(0.0); // acts as accumulator for the acceleration caused by other particles in the according axis on i
       __m256d mi = _mm256_broadcast_sd(&mass[i]);
 
       
@@ -149,21 +149,12 @@ int main(int argc, char *argv[])
         __m256d d3_inv = _mm256_div_pd(_mm256_set1_pd(GRAVCONST), d3);
 
         __m256d mult_j = _mm256_mul_pd(d3_inv, mi);
-        __m256d mult_i = _mm256_mul_pd(d3_inv, _mm256_loadu_pd(&mass[j]));
-        
-        // calculate acceleration due to the force, F
-        __m256d ax = _mm256_mul_pd(mult_i, dx);
-        __m256d ay = _mm256_mul_pd(mult_i, dy);
-        __m256d az = _mm256_mul_pd(mult_i, dz);
+        __m256d mult_i = _mm256_mul_pd(d3_inv, _mm256_loadu_pd(&mass[j]));     
 
-        vxi = _mm256_add_pd(vxi, ax);
-        vyi = _mm256_add_pd(vyi, ay);
-        vzi = _mm256_add_pd(vzi, az);
-
-        __m256d axj = _mm256_mul_pd(mult_j, dx);
-        __m256d ayj = _mm256_mul_pd(mult_j, dy);
-        __m256d azj = _mm256_mul_pd(mult_j, dz);
-
+        axi = _mm256_fmadd_pd(mult_i, dx,axi);
+        ayi = _mm256_fmadd_pd(mult_i, dy,ayi);
+        azi = _mm256_fmadd_pd(mult_i, dz,azi);
+  
         _mm256_storeu_pd(&vx[j],_mm256_fnmadd_pd(mult_j,dx,_mm256_loadu_pd(&vx[j])));
         _mm256_storeu_pd(&vy[j],_mm256_fnmadd_pd(mult_j,dy,_mm256_loadu_pd(&vy[j])));
         _mm256_storeu_pd(&vz[j],_mm256_fnmadd_pd(mult_j,dz,_mm256_loadu_pd(&vz[j])));
@@ -194,9 +185,9 @@ int main(int argc, char *argv[])
         azj = temp_aj * dz;
         
         // approximate velocities in "unit time"
-        vxi[0] += ax;
-        vyi[0] += ay;
-        vzi[0] += az;
+        axi[0] += ax;
+        ayi[0] += ay;
+        azi[0] += az;
 
         vx[j] -= axj;
         vy[j] -= ayj;
@@ -204,9 +195,13 @@ int main(int argc, char *argv[])
         j++;
         }
 
-      x[i] = old_x[i] + vxi[0]+vxi[1]+vxi[2]+vxi[3];
-      y[i] = old_y[i] + vyi[0]+vyi[1]+vyi[2]+vyi[3];
-      z[i] = old_z[i] + vzi[0]+vzi[1]+vzi[2]+vzi[3];
+      x[i] = old_x[i] + vx[i] + axi[0]+axi[1]+axi[2]+axi[3];
+      y[i] = old_y[i] + vy[i] + ayi[0]+ayi[1]+ayi[2]+ayi[3];
+      z[i] = old_z[i] + vz[i] + azi[0]+azi[1]+azi[2]+azi[3];
+
+      vx[i] += axi[0]+axi[1]+axi[2]+axi[3];
+      vy[i] += ayi[0]+ayi[1]+ayi[2]+ayi[3];
+      vz[i] += azi[0]+azi[1]+azi[2]+azi[3];
     }
 
     // DEBUG: output_particles(x,y,z, vx,vy,vz, mass, num);
