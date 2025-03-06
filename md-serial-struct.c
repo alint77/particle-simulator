@@ -9,16 +9,16 @@
 #define TS  10
 
 typedef struct {
-  double mass;
   double old_x;
   double old_y;
   double old_z;
-  double x;
-  double y;
-  double z;
+  double mass;
   double vx;
   double vy;
   double vz;
+  double x;
+  double y;
+  double z;
 } Particle;
 
 int init(Particle*, int);
@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
 
 
   printf("Now to integrate for %d timesteps\n", timesteps);
-
+  // ACTUAL LOGIC OF THE ALGORITHM:
   // time=0 was initial conditions
   for (time=1; time<=timesteps; time++) {
 
@@ -109,20 +109,25 @@ int main(int argc, char* argv[]) {
 
     // LOOP2: update position etc per particle (based on old data)
     for(i=0; i<num; i++) {
+
+      register double mass_i = particles[i].mass;
+      register double x_i = particles[i].x;
+      register double y_i = particles[i].y;
+      register double z_i = particles[i].z;
+
       // calc forces on body i due to particles (j != i)
       for (j=i+1; j<num; j++) {
-        
-          dx = particles[j].old_x - particles[i].x;
-          dy = particles[j].old_y - particles[i].y;
-	        dz = particles[j].old_z - particles[i].z;
+
+          dx = particles[j].old_x - x_i;
+          dy = particles[j].old_y - y_i;
+	        dz = particles[j].old_z - z_i;
 
           temp_d =sqrt(dx*dx + dy*dy + dz*dz);
           d = temp_d>0.01 ? temp_d : 0.01;
           
           temp_const = GRAVCONST / (d*d*d);
           temp_ai = temp_const * particles[j].mass;
-          temp_aj = temp_const * particles[i].mass;
-
+          temp_aj = temp_const * mass_i; ;
 
 	        // calculate acceleration due to the force, F
           ax = temp_ai * dx;
