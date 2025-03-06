@@ -4,6 +4,31 @@
 section .text
 global compute_timestep
 
+; typedef struct {
+; double old_x;
+; double old_y;
+; double old_z;
+; double mass;
+; double vx;
+; double vy;
+; double vz;
+; double x;
+; double y;
+; double z;
+; } Particle;
+
+; offsets:
+; old_x = 0
+; old_y = 8
+; old_z = 16
+; mass = 24
+; vx = 32
+; vy = 40
+; vz = 48
+; x = 56
+; y = 64
+; z = 72
+
 ; void compute_timestep(Particle* particles, int num)
 ; RDI = particles array pointer
 ; RSI = num particles
@@ -58,7 +83,7 @@ compute_timestep:
 
     ; Load particle i data into registers
     vmovsd  xmm13, [r12 + rax + 24]   ; mass_i
-    vmovsd  xmm12, [r12 + rax + 56]   ; x_i
+    vmovpd  ymm12, [r12 + rax + 56]   ; x_i
     vmovsd  xmm11, [r12 + rax + 64]   ; y_i
     vmovsd  xmm10, [r12 + rax + 72]   ; z_i
     vmovsd  xmm9, [r12 + rax + 32]    ; vx_i
