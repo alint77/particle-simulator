@@ -160,47 +160,48 @@ int main(int argc, char *argv[])
 
       }
       while (j<num && j+4>num)
-        {
-        // printf("i: %d, j: %d\n", i, j);
-        // Handle special case
-        dx = old_x[j] - x[i];
-        dy = old_y[j] - y[i];
-        dz = old_z[j] - z[i];
+      {
+      // printf("i: %d, j: %d\n", i, j);
+      // Handle special case
+      dx = old_x[j] - x[i];
+      dy = old_y[j] - y[i];
+      dz = old_z[j] - z[i];
 
-        temp_d =sqrt(dx*dx + dy*dy + dz*dz);
-        d = temp_d>0.01 ? temp_d : 0.01;
+      temp_d =sqrt(dx*dx + dy*dy + dz*dz);
+      d = temp_d>0.01 ? temp_d : 0.01;
+      
+      temp_const = GRAVCONST / (d*d*d);
+      temp_ai = temp_const * mass[j];
+      temp_aj = temp_const * mass[i]; ;
+
+      // calculate acceleration due to the force, F
+      ax = temp_ai * dx;
+      ay = temp_ai * dy;
+      az = temp_ai * dz;
+      
+      axj = temp_aj * dx;
+      ayj = temp_aj * dy;
+      azj = temp_aj * dz;
+      
+      // approximate velocities in "unit time"
+      axi[0] += ax;
+      ayi[0] += ay;
+      azi[0] += az;
+
+      vx[j] -= axj;
+      vy[j] -= ayj;
+      vz[j] -= azj;
+      j++;
+      }
         
-        temp_const = GRAVCONST / (d*d*d);
-        temp_ai = temp_const * mass[j];
-        temp_aj = temp_const * mass[i]; ;
-
-        // calculate acceleration due to the force, F
-        ax = temp_ai * dx;
-        ay = temp_ai * dy;
-        az = temp_ai * dz;
-        
-        axj = temp_aj * dx;
-        ayj = temp_aj * dy;
-        azj = temp_aj * dz;
-        
-        // approximate velocities in "unit time"
-        axi[0] += ax;
-        ayi[0] += ay;
-        azi[0] += az;
-
-        vx[j] -= axj;
-        vy[j] -= ayj;
-        vz[j] -= azj;
-        j++;
-        }
-
-      x[i] = old_x[i] + vx[i] + axi[0]+axi[1]+axi[2]+axi[3];
-      y[i] = old_y[i] + vy[i] + ayi[0]+ayi[1]+ayi[2]+ayi[3];
-      z[i] = old_z[i] + vz[i] + azi[0]+azi[1]+azi[2]+azi[3];
-
       vx[i] += axi[0]+axi[1]+axi[2]+axi[3];
       vy[i] += ayi[0]+ayi[1]+ayi[2]+ayi[3];
       vz[i] += azi[0]+azi[1]+azi[2]+azi[3];
+      
+      x[i] = old_x[i] + vx[i] ;
+      y[i] = old_y[i] + vy[i] ;
+      z[i] = old_z[i] + vz[i] ;
+
     }
 
     // DEBUG: output_particles(x,y,z, vx,vy,vz, mass, num);
