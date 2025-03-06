@@ -1,37 +1,12 @@
-; compute.asm - Core computation for particle simulation
-; Compile with: nasm -f elf64 compute.asm -o compute.o
+; compute_simd.asm - SIMD-optimized core computation for particle simulation
+; Compile with: nasm -f elf64 compute_simd.asm -o compute.o
 
 section .text
 global compute_timestep
 
-; typedef struct {
-; double old_x;
-; double old_y;
-; double old_z;
-; double mass;
-; double vx;
-; double vy;
-; double vz;
-; double x;
-; double y;
-; double z;
-; } Particle;
-
-; offsets:
-; old_x = 0
-; old_y = 8
-; old_z = 16
-; mass = 24
-; vx = 32
-; vy = 40
-; vz = 48
-; x = 56
-; y = 64
-; z = 72
-
-; void compute_timestep(Particle* particles, int num)
-; RDI = particles array pointer
-; RSI = num particles
+; void compute_timestep(Particles* particles, int num)
+; RDI = particles struct pointer
+; RSI = num particles (not used, as it's stored in the struct)
 compute_timestep:
     push    rbp
     mov     rbp, rsp
@@ -40,148 +15,177 @@ compute_timestep:
     push    r13
     push    r14
     push    r15
+    sub     rsp, 64          ; Allocate stack space for temporary variables
 
-    ; Save parameters
-    mov     r12, rdi        ; r12 = particles array
-    mov     r13, rsi        ; r13 = num particles
+    ; Extract pointers from Particles struct
+    mov     r8, [rdi]        ; r8 = particles->x
+    mov     r9, [rdi+8]      ; r9 = particles->y
+    mov     r10, [rdi+16]    ; r10 = particles->z
+    mov     r11, [rdi+24]    ; r11 = particles->old_x
+    mov     r12, [rdi+32]    ; r12 = particles->old_y
+    mov     r13, [rdi+40]    ; r13 = particles->old_z
+    mov     r14, [rdi+48]    ; r14 = particles->vx
+    mov     r15, [rdi+56]    ; r15 = particles->vy
+    mov     rbx, [rdi+64]    ; rbx = particles->vz
+    mov     rax, [rdi+72]    ; rax = particles->mass
+    mov     rsi, [rdi+80]    ; rsi = particles->num (overwrite the second parameter)
+
+    ; Save pointers to stack for later use
+    mov     [rsp], r8        ; Save x pointer
+    mov     [rsp+8], r9      ; Save y pointer
+    mov     [rsp+16], r10    ; Save z pointer
+    mov     [rsp+24], r11    ; Save old_x pointer
+    mov     [rsp+32], r12    ; Save old_y pointer
+    mov     [rsp+40], r13    ; Save old_z pointer
+    mov     [rsp+48], r14    ; Save vx pointer
+    mov     [rsp+56], r15    ; Save vy pointer
+    mov     [rsp+64], rbx    ; Save vz pointer
+    mov     [rsp+72], rax    ; Save mass pointer
 
     ; LOOP1: Save current positions to old positions
-    xor     rcx, rcx        ; i = 0
-.loop1:
-    cmp     rcx, r13        ; compare i with num
-    jge     .loop1_end      ; if i >= num, end loop
-
-    ; Calculate offset into particles array (i * sizeof(Particle))
-    mov     rax, rcx
-    imul    rax, 80         ; sizeof(Particle) = 80 bytes (10 doubles * 8)
-    
-    ; Copy current positions to old positions
-    vmovsd  xmm0, [r12 + rax + 56]    ; load x
-    vmovsd  [r12 + rax], xmm0         ; store to old_x
-    vmovsd  xmm0, [r12 + rax + 64]    ; load y
-    vmovsd  [r12 + rax + 8], xmm0     ; store to old_y
-    vmovsd  xmm0, [r12 + rax + 72]    ; load z
-    vmovsd  [r12 + rax + 16], xmm0    ; store to old_z
-
-    inc     rcx
-    jmp     .loop1
-
-.loop1_end:
-    ; Cache constants
-    vmovsd  xmm15, [rel min_distance]  ; min_distance
-    vmovsd  xmm14, [rel grav_const]    ; gravitational constant
+    ; This is now done in the init function, so we can skip it here
 
     ; LOOP2: Calculate forces and update positions
     xor     rcx, rcx        ; i = 0
 .loop2:
-    cmp     rcx, r13        ; compare i with num
+    cmp     rcx, rsi        ; compare i with num
     jge     .loop2_end      ; if i >= num, end loop
 
-    ; Calculate base offset for particle i
-    mov     rax, rcx
-    imul    rax, 80         ; sizeof(Particle) = 80 bytes
+    ; Load pointers from stack
+    mov     r8, [rsp]        ; r8 = x pointer
+    mov     r9, [rsp+8]      ; r9 = y pointer
+    mov     r10, [rsp+16]    ; r10 = z pointer
+    mov     r11, [rsp+24]    ; r11 = old_x pointer
+    mov     r12, [rsp+32]    ; r12 = old_y pointer
+    mov     r13, [rsp+40]    ; r13 = old_z pointer
+    mov     r14, [rsp+48]    ; r14 = vx pointer
+    mov     r15, [rsp+56]    ; r15 = vy pointer
+    mov     rbx, [rsp+64]    ; rbx = vz pointer
+    mov     rax, [rsp+72]    ; rax = mass pointer
 
-    ; Load particle i data into registers
-    vmovsd  xmm13, [r12 + rax + 24]   ; mass_i
-    vmovupd  ymm12, [r12 + rax + 56]   ; x_i, y_i, z_i, old_x[i+1] (garbage/padding)
-    vmovupd  ymm11, [r12 + rax + 32]    ; vx_i, vy_i, vz_i, x_i (garbage/padding) accumulator
+    ; Broadcast particle i data to YMM registers
+    vbroadcastsd ymm0, [r11 + rcx*8]   ; old_x[i]
+    vbroadcastsd ymm1, [r12 + rcx*8]   ; old_y[i]
+    vbroadcastsd ymm2, [r13 + rcx*8]   ; old_z[i]
+    vbroadcastsd ymm3, [rax + rcx*8]   ; mass[i]
     
+    ; Initialize acceleration accumulators to zero
+    vxorpd  ymm4, ymm4, ymm4    ; axi = 0
+    vxorpd  ymm5, ymm5, ymm5    ; ayi = 0
+    vxorpd  ymm6, ymm6, ymm6    ; azi = 0
+
     ; Inner loop j = i + 1
-    mov     rdx, rcx
-    inc     rdx             ; j = i + 1
+    lea     rdx, [rcx + 1]      ; j = i + 1
 
-    ; Align inner loop for better performance
-    align 64
 .inner_loop:
-    cmp     rdx, r13        ; compare j with num
-    jge     .inner_loop_end ; if j >= num, end inner loop
+    ; Check if we have at least 4 more particles to process
+    lea     rdi, [rdx + 4]
+    cmp     rdi, rsi
+    jg      .remainder_loop     ; Less than 4 particles left, handle separately
 
-    ; Calculate offset for particle j
-    mov     rbx, rdx
-    imul    rbx, 80         ; sizeof(Particle) = 80 bytes
+    ; Load data for 4 particles at once (j, j+1, j+2, j+3)
+    ; With SoA layout, we can load 4 consecutive elements from each array
+    vmovupd ymm7, [r11 + rdx*8]       ; old_x for particles j, j+1, j+2, j+3
+    vmovupd ymm8, [r12 + rdx*8]       ; old_y for particles j, j+1, j+2, j+3
+    vmovupd ymm9, [r13 + rdx*8]       ; old_z for particles j, j+1, j+2, j+3
+    vmovupd ymm10, [rax + rdx*8]      ; mass for particles j, j+1, j+2, j+3
 
-    ; Prefetch next particle data
-    prefetcht0 [r12 + rbx + 80]
-    
-    ; Load particle j data
-    vmovupd  ymm0, [r12 + rbx]         ; old_x_j, old_y_j, old_z_j, mass_j
-    vmovsd  xmm1, [r12 + rbx + 24]    ; mass_j
-    
     ; Calculate dx, dy, dz
-    vsubpd  ymm0, ymm0, ymm12         ; dx = old_x_j - x_i , dy = old_y_j - y_i, dz = old_z_j - z_i
-    vmovupd ymm3, ymm0                ; dx, dy, dz, mass_j
-    
-    ; Calculate d^2 = dx*dx + dy*dy + dz*dz using AVX2 FMA
-    vmulpd  ymm0, ymm0, ymm0          ; dx^2, dy^2, dz^2
+    vsubpd  ymm7, ymm7, ymm0    ; dx = old_x[j] - old_x[i]
+    vsubpd  ymm8, ymm8, ymm1    ; dy = old_y[j] - old_y[i]
+    vsubpd  ymm9, ymm9, ymm2    ; dz = old_z[j] - old_z[i]
 
-    ; Sum dx^2, dy^2, dz^2
-    vextractf128 xmm2, ymm0, 1
-    vaddpd  xmm0, xmm0, xmm2          ; dx^2 + dy^2, dz^2, 0, 0
-    vhaddpd xmm0, xmm0, xmm0          ; dx^2 + dy^2 + dz^2, 0, 0, 0
+    ; Calculate d^2 = dx*dx + dy*dy + dz*dz
+    vmulpd  ymm11, ymm7, ymm7   ; dx*dx
+    vfmadd231pd ymm11, ymm8, ymm8   ; dx*dx + dy*dy
+    vfmadd231pd ymm11, ymm9, ymm9   ; dx*dx + dy*dy + dz*dz
 
-    
-    ; Calculate d = sqrt(d^2) and max with min_distance
-    vsqrtsd xmm0, xmm0, xmm0          ; d = sqrt(d^2)
-    vmaxsd  xmm0, xmm0, xmm15         ; d = max(d, 0.01)
-    
-    ; Calculate 1/d^3
-    vmulsd  xmm5, xmm0, xmm0          ; d^2
-    vmulsd  xmm5, xmm5, xmm0          ; d^3
-    vdivsd  xmm5, xmm14, xmm5          ; G/d^3
-    
-    ; Calculate forces
-    vmulsd  xmm4, xmm5, xmm3          ; G*m_j/d^3 for particle i
-    vmulsd  xmm5, xmm5, xmm13         ; G*m_i/d^3 for particle j
+    ; Calculate d = sqrt(d^2)
+    vsqrtpd ymm11, ymm11        ; sqrt(dx*dx + dy*dy + dz*dz)
 
-    ; Update velocities for particle i using AVX2 FMA
+    ; Max with 0.01 to avoid division by zero
+    vbroadcastsd ymm12, [rel min_distance]
+    vmaxpd  ymm11, ymm11, ymm12 ; d = max(d, 0.01)
 
-    vfmadd231pd ymm11, ymm3, ymm4    ; vx_i += dx * (G*m_j/d^3), vy_i += dy * (G*m_j/d^3), vz_i += dz * (G*m_j/d^3)
-    
-    ; Update velocities for particle j using AVX2 FMA
+    ; Calculate d^3
+    vmulpd  ymm12, ymm11, ymm11 ; d^2
+    vmulpd  ymm12, ymm12, ymm11 ; d^3
 
-    vfnmadd123pd ymm5, ymm3, [r12 + rax + 32]    ; vx_j -= dx * (G*m_i/d^3), vy_j -= dy * (G*m_i/d^3), vz_j -= dz * (G*m_i/d^3)
+    ; Calculate GRAVCONST / d^3
+    vbroadcastsd ymm13, [rel grav_const]
+    vdivpd  ymm12, ymm13, ymm12 ; GRAVCONST / d^3
 
-    ; Store updated velocities for particle j
-    vmovupd  [r12 + rbx + 32], xmm5    ; store vx_j
-    ; store the third element of ymm5 to [r12 + rbx + 48] (vz_j)
-    vextractf128 xmm6, ymm5, 1      ; Extract high 128 bits (elements 2,3) to xmm6
-    vmovsd [r12 + rbx + 48], xmm6   ; Store the lowest double from xmm6 (element 2 from ymm5)
+    ; Calculate force multipliers
+    vmulpd  ymm13, ymm12, ymm10 ; (GRAVCONST / d^3) * mass[j]
+    vmulpd  ymm14, ymm12, ymm3  ; (GRAVCONST / d^3) * mass[i]
 
-    inc     rdx
+    ; Update acceleration for particle i
+    vfmadd231pd ymm4, ymm13, ymm7   ; axi += dx * (GRAVCONST / d^3) * mass[j]
+    vfmadd231pd ymm5, ymm13, ymm8   ; ayi += dy * (GRAVCONST / d^3) * mass[j]
+    vfmadd231pd ymm6, ymm13, ymm9   ; azi += dz * (GRAVCONST / d^3) * mass[j]
+
+    ; Load velocities for particles j, j+1, j+2, j+3
+    vmovupd ymm10, [r14 + rdx*8]     ; vx for particles j, j+1, j+2, j+3
+    vmovupd ymm11, [r15 + rdx*8]     ; vy for particles j, j+1, j+2, j+3
+    vmovupd ymm12, [rbx + rdx*8]     ; vz for particles j, j+1, j+2, j+3
+
+    ; Update velocities for particles j, j+1, j+2, j+3
+    vfnmadd231pd ymm10, ymm14, ymm7   ; vx[j] -= dx * (GRAVCONST / d^3) * mass[i]
+    vfnmadd231pd ymm11, ymm14, ymm8   ; vy[j] -= dy * (GRAVCONST / d^3) * mass[i]
+    vfnmadd231pd ymm12, ymm14, ymm9   ; vz[j] -= dz * (GRAVCONST / d^3) * mass[i]
+
+    ; Store updated velocities
+    vmovupd [r14 + rdx*8], ymm10    ; store vx
+    vmovupd [r15 + rdx*8], ymm11    ; store vy
+    vmovupd [rbx + rdx*8], ymm12    ; store vz
+
+    ; Move to next 4 particles
+    add     rdx, 4
     jmp     .inner_loop
 
+.remainder_loop:
+    ; Handle remaining particles one by one
+    cmp     rdx, rsi
+    jge     .inner_loop_end
 
-.inner_loop_end:
-    ; Update positions for particle i using old positions
+    ; Load data for particle j
+    vmovsd  xmm7, [r11 + rdx*8]      ; old_x[j]
+    vmovsd  xmm8, [r12 + rdx*8]      ; old_y[j]
+    vmovsd  xmm9, [r13 + rdx*8]      ; old_z[j]
+    vmovsd  xmm10, [rax + rdx*8]     ; mass[j]
 
-    ; Load updated velocities for particle i
-    vmovupd  ymm9, [r12 + rax ]      ; old_x, old_y, old_z, mass_i
-    vaddpd  ymm9, ymm9, ymm11        ; old_x + vx_i, old_y + vy_i, old_z + vz_i
-    vmovupd  [r12 + rax + 56], xmm9  ; store new x, y, z
-    vextractf128 xmm6, ymm9, 1        ;  
-    vmovsd [r12 + rbx + 48], xmm6   ; 
+    ; Calculate dx, dy, dz
+    vsubsd  xmm7, xmm7, xmm0    ; dx = old_x[j] - old_x[i]
+    vsubsd  xmm8, xmm8, xmm1    ; dy = old_y[j] - old_y[i]
+    vsubsd  xmm9, xmm9, xmm2    ; dz = old_z[j] - old_z[i]
 
-    
-    ; Store updated velocities for particle i
-    vmovupd  [r12 + rax + 32], xmm11    ; store vx_i, vy_i, vz_i, x_i (garbage/padding)
-    ; store the third element of ymm11 to [r12 + rax + 48]
-    vextractf128 xmm7, ymm11, 1        ; Extract vz_i (third element)
-    vmovsd [r12 + rax + 48], xmm7   ; Store vz_i
+    ; Calculate d^2 = dx*dx + dy*dy + dz*dz
+    vmulsd  xmm11, xmm7, xmm7   ; dx*dx
+    vfmadd231sd xmm11, xmm8, xmm8   ; dx*dx + dy*dy
+    vfmadd231sd xmm11, xmm9, xmm9   ; dx*dx + dy*dy + dz*dz
 
+    ; Calculate d = sqrt(d^2)
+    vsqrtsd xmm11, xmm11, xmm11        ; sqrt(dx*dx + dy*dy + dz*dz)
 
-    inc     rcx
-    jmp     .loop2
+    ; Max with 0.01 to avoid division by zero
+    vmovsd  xmm12, [rel min_distance]
+    vmaxsd  xmm11, xmm11, xmm12 ; d = max(d, 0.01)
 
-.loop2_end:
-    pop     r15
-    pop     r14
-    pop     r13
-    pop     r12
-    pop     rbx
-    pop     rbp
-    ret
+    ; Calculate d^3
+    vmulsd  xmm12, xmm11, xmm11 ; d^2
+    vmulsd  xmm12, xmm12, xmm11 ; d^3
 
-section .data
-    align 16
-    grav_const:      dq 0.001    ; GRAVCONST
-    min_distance:    dq 0.01     ; Minimum distance threshold
+    ; Calculate GRAVCONST / d^3
+    vmovsd  xmm13, [rel grav_const]
+    vdivsd  xmm12, xmm13, xmm12 ; GRAVCONST / d^3
+
+    ; Calculate force multipliers
+    vmulsd  xmm13, xmm12, xmm10 ; (GRAVCONST / d^3) * mass[j]
+    vmulsd  xmm14, xmm12, xmm3  ; (GRAVCONST / d^3) * mass[i]
+
+    ; Update acceleration for particle i (accumulate in the first element of ymm4,5,6)
+    vfmadd231sd xmm4, xmm13, xmm7   ; axi += dx * (GRAVCONST / d^3) * mass[j]
+    vfmadd231sd xmm5, xmm13, xmm8   ; ayi += dy * (GRAVCONST / d^3) * mass[j]
+    vfmadd231sd xmm6, xmm13, xmm9   ; azi += dz * (GRAVCONST / d^3) * mass[j]
+
+    ; Load velocities for particle j

@@ -10,22 +10,34 @@
 #define TS 10
 #define GRAVCONST 0.001
 
+// Structure of Arrays (SoA) layout for better SIMD processing
 typedef struct {
-    double old_x;
-    double old_y;
-    double old_z;
-    double mass;
-    double vx;
-    double vy;
-    double vz;
-    double x;
-    double y;
-    double z;
-} Particle;
+    // Current positions
+    double* x;
+    double* y;
+    double* z;
+    
+    // Old positions (from previous timestep)
+    double* old_x;
+    double* old_y;
+    double* old_z;
+    
+    // Velocities
+    double* vx;
+    double* vy;
+    double* vz;
+    
+    // Mass
+    double* mass;
+    
+    // Number of particles
+    int num;
+} Particles;
 
 // Function declarations
-int init(Particle* particles, int num);
-void calc_centre_mass(double* com, Particle* particles, double totalMass, int N);
-void compute_timestep(Particle* particles, int num);
+int init(Particles* particles, int num);
+void calc_centre_mass(double* com, Particles* particles, double totalMass, int N);
+void compute_timestep(Particles* particles, int num);
+void free_particles(Particles* particles);
 
 #endif // PARTICLES_H

@@ -99,7 +99,6 @@ int main(int argc, char *argv[])
   */
 
   printf("Now to integrate for %d timesteps\n", timesteps);
-  int c = 0;
   // time=0 was initial conditions
   for (time = 1; time <= timesteps; time++)
   {
@@ -218,7 +217,6 @@ int main(int argc, char *argv[])
   // output a metric (centre of mass) for checking
   calc_centre_mass(com, x, y, z, mass, totalMass, num);
   printf("Centre of mass = (%.24f,%.24f,%.24f)\n", com[0], com[1], com[2]);
-  printf("c: %d\n", c);
 } // main
 
 int init(double *mass, double *x, double *y, double *z, double *vx, double *vy, double *vz, int num)
