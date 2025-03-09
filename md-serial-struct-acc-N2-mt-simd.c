@@ -14,16 +14,16 @@
 #define GRAVCONST 0.001
 
 typedef struct {
-    double* x;     // Current positions
-    double* y;
-    double* z;
+    double* mass;  // Masses
     double* old_x; // Old positions
     double* old_y;
     double* old_z;
+    double* x;     // Current positions
+    double* y;
+    double* z;
     double* vx;    // Velocities
     double* vy;
     double* vz;
-    double* mass;  // Masses
     int num;       // Number of particles
 } Particle;
 
@@ -96,17 +96,13 @@ int main(int argc, char *argv[]) {
         totalMass += particles.mass[i];
     }
 
-    // DEBUG: test hsums function:
-    __m256d a = _mm256_set_pd(1.0, 2.0, 3.0, 4.0);
-    printf("hsums(a) = %g\n", hsums(a));
-
     // output a metric (centre of mass) for checking
     calc_centre_mass(com, &particles, totalMass, num);
     printf("At t=0, centre of mass = (%g,%g,%g)\n", com[0], com[1], com[2]);
 
     printf("Now to integrate for %d timesteps\n", timesteps);
-    
     double* accelerations = (double*)calloc(num * 3, sizeof(double));
+    
     for (time = 1; time <= timesteps; time++) {
         // LOOP1: take snapshot to use on RHS when looping for updates
         for (i = 0; i < num; i++) {
@@ -118,7 +114,6 @@ int main(int argc, char *argv[]) {
             accelerations[i * 3 + 2] = 0.0;
         }
 
-        
         pthread_t threads[THREAD_COUNT];
         ThreadArgs thread_args[THREAD_COUNT];
 
@@ -213,10 +208,15 @@ void* calc_force(void* args) {
     int stop = targs->stop;
     double* accelerations = targs->accelerations;
 
-    for (int i = start; i < stop; i++) {
-        __m256d x_i = _mm256_set1_pd(particles->x[i]);
-        __m256d y_i = _mm256_set1_pd(particles->y[i]);
-        __m256d z_i = _mm256_set1_pd(particles->z[i]);
+    for (int i = start; i < stop; i+=2) {
+
+        __m256d x_i = _mm256_broadcast_sd(&particles->x[i]);
+        __m256d y_i = _mm256_broadcast_sd(&particles->y[i]);
+        __m256d z_i = _mm256_broadcast_sd(&particles->z[i]);
+
+        __m256d x_i2 = _mm256_broadcast_sd(&particles->x[i+1]);
+        __m256d y_i2 = _mm256_broadcast_sd(&particles->y[i+1]);
+        __m256d z_i2 = _mm256_broadcast_sd(&particles->z[i+1]);
 
         for (int j = 0; j < num; j += 4) {
 
@@ -228,18 +228,30 @@ void* calc_force(void* args) {
             __m256d dx = _mm256_sub_pd(old_x, x_i);
             __m256d dy = _mm256_sub_pd(old_y, y_i);
             __m256d dz = _mm256_sub_pd(old_z, z_i);
+
+            __m256d dx2 = _mm256_sub_pd(old_x, x_i2);
+            __m256d dy2 = _mm256_sub_pd(old_y, y_i2);
+            __m256d dz2 = _mm256_sub_pd(old_z, z_i2);
             
             __m256d sqrt_d2 = _mm256_sqrt_pd(_mm256_fmadd_pd(dz, dz, 
                                             _mm256_fmadd_pd(dy, dy, 
                                             _mm256_mul_pd(dx, dx))));
+            __m256d sqrt_d2_2 = _mm256_sqrt_pd(_mm256_fmadd_pd(dz2, dz2,
+                                              _mm256_fmadd_pd(dy2, dy2,
+                                              _mm256_mul_pd(dx2, dx2))));
 
             __m256d d = _mm256_max_pd(sqrt_d2, _mm256_set1_pd(0.01));
+            __m256d d_2 = _mm256_max_pd(sqrt_d2_2, _mm256_set1_pd(0.01));
 
             __m256d d2 = _mm256_mul_pd(d, d);
+            __m256d d2_2 = _mm256_mul_pd(d_2, d_2);
             __m256d d3 = _mm256_mul_pd(d2, d);
+            __m256d d3_2 = _mm256_mul_pd(d2_2, d_2);
             __m256d d3_inv = _mm256_div_pd(_mm256_set1_pd(GRAVCONST), d3);
+            __m256d d3_inv_2 = _mm256_div_pd(_mm256_set1_pd(GRAVCONST), d3_2);
             
             __m256d temp_ai = _mm256_mul_pd(d3_inv, mass);
+            __m256d temp_ai_2 = _mm256_mul_pd(d3_inv_2, mass);
 
             // // Skip self-interactions
             // __m256d mask = _mm256_castsi256_pd(_mm256_setr_epi64x(
@@ -252,6 +264,10 @@ void* calc_force(void* args) {
             accelerations[i * 3 + 0] += hsums(_mm256_mul_pd(temp_ai, dx));
             accelerations[i * 3 + 1] += hsums(_mm256_mul_pd(temp_ai, dy));
             accelerations[i * 3 + 2] += hsums(_mm256_mul_pd(temp_ai, dz));
+
+            accelerations[(i+1) * 3 + 0] += hsums(_mm256_mul_pd(temp_ai_2, dx2));
+            accelerations[(i+1) * 3 + 1] += hsums(_mm256_mul_pd(temp_ai_2, dy2));
+            accelerations[(i+1) * 3 + 2] += hsums(_mm256_mul_pd(temp_ai_2, dz2));
         }
     }
     return NULL;
@@ -264,4 +280,3 @@ static inline double hsums(__m256d v) {
     __m128d high64 = _mm_unpackhi_pd(vlow, vlow);
     return _mm_cvtsd_f64(_mm_add_sd(vlow, high64));
 }
-

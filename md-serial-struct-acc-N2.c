@@ -116,13 +116,16 @@ int main(int argc, char *argv[])
     //BELOW PART CAN BE PARALLELISED
     double *accelerations = (double *)calloc(num * 3, sizeof(double));
     // LOOP2: update position etc per particle (based on old data)
-    for (i = 0; i < num; i++)
+    for (i = 0; i < num; i+=2)
     {
 
-      register double mass_i = particles[i].mass;
-      register double x_i = particles[i].x;
-      register double y_i = particles[i].y;
-      register double z_i = particles[i].z;
+      double x_i = particles[i].x;
+      double y_i = particles[i].y;
+      double z_i = particles[i].z;
+
+      double x_i2 = particles[i+1].x;
+      double y_i2 = particles[i+1].y;
+      double z_i2 = particles[i+1].z;
 
       // calc forces on body i due to particles (j != i)
       for (j = 0; j < num; j++)
@@ -132,17 +135,25 @@ int main(int argc, char *argv[])
           dx = particles[j].old_x - x_i;
           dy = particles[j].old_y - y_i;
           dz = particles[j].old_z - z_i;
-
           temp_d = sqrt(dx * dx + dy * dy + dz * dz);
           d = temp_d > 0.01 ? temp_d : 0.01;
-
           temp_const = GRAVCONST / (d * d * d);
           temp_ai = temp_const * particles[j].mass;
-
-          // calculate acceleration due to the force, F
           accelerations[i * 3 + 0] += temp_ai * dx;
           accelerations[i * 3 + 1] += temp_ai * dy;
           accelerations[i * 3 + 2] += temp_ai * dz;
+          
+          double dx2 = particles[j].old_x - x_i2;
+          double dy2 = particles[j].old_y - y_i2;
+          double dz2 = particles[j].old_z - z_i2;
+          double temp_d2 = sqrt(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
+          double d2 = temp_d2 > 0.01 ? temp_d2 : 0.01;
+          double temp_const2 = GRAVCONST / (d2 * d2 * d2);
+          double temp_ai2 = temp_const2 * particles[j].mass;
+          accelerations[(i+1) * 3 + 0] += temp_ai2 * dx2;
+          accelerations[(i+1) * 3 + 1] += temp_ai2 * dy2;
+          accelerations[(i+1) * 3 + 2] += temp_ai2 * dz2;
+
         }
       }
     } // end of LOOP 2
@@ -164,6 +175,7 @@ int main(int argc, char *argv[])
     //  output a metric (centre of mass) for checking
     calc_centre_mass(com, particles, totalMass, num);
     printf("End of timestep %d, centre of mass = (%.3f,%.3f,%.3f)\n", time, com[0], com[1], com[2]);
+    free(accelerations);
   } // time steps
 
   gettimeofday(&wallEnd, NULL);                                                                    // end time

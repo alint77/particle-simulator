@@ -3,6 +3,8 @@
 #include <math.h>
 #include <sys/time.h> // for wallclock timing functions
 #include <immintrin.h>
+#include <pthread.h>
+
 /*
    hard-wire simulation parameters
 */
@@ -126,6 +128,7 @@ int main(int argc, char *argv[])
       __m256d azi = _mm256_set1_pd(0.0); // acts as accumulator for the acceleration caused by other particles in the according axis on i
       __m256d mi = _mm256_broadcast_sd(&mass[i]);
 
+      // thread
       
       // calc forces on body i due to particles (j != i)
       for (j = i+1; j+4 < num; j+=4)
@@ -193,7 +196,7 @@ int main(int argc, char *argv[])
       vz[j] -= azj;
       j++;
       }
-        
+      // thr1 + thr2
       vx[i] += axi[0]+axi[1]+axi[2]+axi[3];
       vy[i] += ayi[0]+ayi[1]+ayi[2]+ayi[3];
       vz[i] += azi[0]+azi[1]+azi[2]+azi[3];

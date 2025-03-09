@@ -231,36 +231,52 @@ void* calc_force(void* args){
   int t = targs->thread_id;
   double* accelerations = targs->accelerations;
 
-  
   //BELOW PART CAN BE PARALLELISED
   // LOOP2: update position etc per particle (based on old data)
-  for (int i = start; i < stop; i++)
+  for (int i = start; i < stop; i+=2)
   {
 
-    register double mass_i = particles[i].mass;
-    register double x_i = particles[i].x;
-    register double y_i = particles[i].y;
-    register double z_i = particles[i].z;
+    double x_i = particles[i].x;
+    double y_i = particles[i].y;
+    double z_i = particles[i].z;
+
+    double x_i2 = particles[i+1].x;
+    double y_i2 = particles[i+1].y;
+    double z_i2 = particles[i+1].z;
 
     // calc forces on body i due to particles (j != i)
     for (int j = 0; j < num; j++)
     {
       if (j != i)
       {
-        double dx = particles[j].old_x - x_i;
-        double dy = particles[j].old_y - y_i;
-        double dz = particles[j].old_z - z_i;
+        double old_xj = particles[j].old_x;
+        double old_yj = particles[j].old_y;
+        double old_zj = particles[j].old_z;
 
+        double dx = old_xj - x_i;
+        double dy = old_yj - y_i;
+        double dz = old_zj - z_i;
+        double dx2 = old_xj - x_i2;
+        double dy2 = old_yj - y_i2;
+        double dz2 = old_zj - z_i2;
+        
         double temp_d = sqrt(dx * dx + dy * dy + dz * dz);
+        double temp_d2 = sqrt(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
         double d = temp_d > 0.01 ? temp_d : 0.01;
+        double d2 = temp_d2 > 0.01 ? temp_d2 : 0.01;
 
         double temp_const = GRAVCONST / (d * d * d);
         double temp_ai = temp_const * particles[j].mass;
-
-        // calculate acceleration due to the force, F
+        
+        double temp_const2 = GRAVCONST / (d2 * d2 * d2);
+        double temp_ai2 = temp_const2 * particles[j].mass;
+        
         accelerations[i * 3 + 0] += temp_ai * dx;
         accelerations[i * 3 + 1] += temp_ai * dy;
         accelerations[i * 3 + 2] += temp_ai * dz;
+        accelerations[(i+1) * 3 + 0] += temp_ai2 * dx2;
+        accelerations[(i+1) * 3 + 1] += temp_ai2 * dy2;
+        accelerations[(i+1) * 3 + 2] += temp_ai2 * dz2;
       }
     }
   } // end of LOOP 2

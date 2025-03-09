@@ -1,15 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <sys/time.h>  // for wallclock timing functions     
-#include <pthread.h>                                                                          
+#include <sys/time.h>  // for wallclock timing functions                                                                               
 /* 
    hard-wire simulation parameters
 */
 #define NUM 20000
 #define TS  10
-#define THREAD_COUNT 2
-#define GRAVCONST 0.001
 
 typedef struct {
   double old_x;
@@ -24,33 +21,14 @@ typedef struct {
   double z;
 } Particle;
 
-// Structure to hold thread arguments
-typedef struct {
-
-  Particle* particles;
-
-   double mass_i;
-   double x_i;
-   double y_i;
-   double z_i;
-   int num;
-   int start;
-   int step;
-
-  double* a_accs;
-   int thread_id;
-
-} ThreadArgs;
-void* calc_force(void* args);
 int init(Particle*, int);
 void calc_centre_mass(double*,Particle*, double, int);
-
 int main(int argc, char* argv[]) {
   int i, j;
   int num;     // user defined (argv[1]) total number of gas molecules in simulation
   int time, timesteps; // for time stepping, including user defined (argv[2]) number of timesteps to integrate
   int rc;      // return code
-  double dx, dy, dz, d, F;
+  double dx, dy, dz, d, F, GRAVCONST=0.001;
   double totalMass;  
   double com[3];
 
@@ -114,15 +92,11 @@ int main(int argc, char* argv[]) {
 
   */
 
-  double* a_accs = (double*) calloc(THREAD_COUNT* 3 ,sizeof(double));
-
 
   printf("Now to integrate for %d timesteps\n", timesteps);
   // ACTUAL LOGIC OF THE ALGORITHM:
   // time=0 was initial conditions
   for (time=1; time<=timesteps; time++) {
-
-
 
     // LOOP1: take snapshot to use on RHS when looping for updates
     for (i=0; i<num; i++) {
@@ -131,40 +105,43 @@ int main(int argc, char* argv[]) {
       particles[i].old_z = particles[i].z;
     }
 
-    double temp_const, temp_aj, temp_ai, temp_d,axj,ayj,azj,ax,ay,az;
+    double temp_const, temp_aj, temp_ai, temp_d;
+
     // LOOP2: update position etc per particle (based on old data)
     for(i=0; i<num; i++) {
-      
-      double mass_i = particles[i].mass;
-      double x_i = particles[i].x;
-      double y_i = particles[i].y;
-      double z_i = particles[i].z;
 
-      for (int t = 0; t < THREAD_COUNT; t++) {
-        a_accs[t*3+0] = 0.0;
-        a_accs[t*3+1] = 0.0;
-        a_accs[t*3+2] = 0.0;
-      }
-      
-      double ax_i=0,ay_i=0,az_i=0;
+      register double mass_i = particles[i].mass;
+      register double x_i = particles[i].x;
+      register double y_i = particles[i].y;
+      register double z_i = particles[i].z;
 
-      pthread_t threads[THREAD_COUNT];
-      
-      ThreadArgs thread_args[THREAD_COUNT];
+      register double ax_i = 0;
+      register double ay_i = 0;
+      register double az_i = 0;
 
-      for (int t = 0; t < THREAD_COUNT; t++) {
-        thread_args[t] = (ThreadArgs){particles,mass_i,x_i,y_i,z_i, num, i+1+(t), THREAD_COUNT,a_accs,t};
-        pthread_create(&threads[t], NULL, calc_force, (void*)&thread_args[t]);
-      }
+      // calc forces on body i due to particles (j != i)
+      for (j=i+1; j<num; j++) {
 
-      for (int t = 0; t < THREAD_COUNT; t++)
-      {
-        pthread_join(threads[t],NULL);
-        ax_i += a_accs[t*3+0];
-        ay_i += a_accs[t*3+1];
-        az_i += a_accs[t*3+2];
-      }
-      
+          dx = particles[j].old_x - x_i;
+          dy = particles[j].old_y - y_i;
+	        dz = particles[j].old_z - z_i;
+
+          temp_d =sqrt(dx*dx + dy*dy + dz*dz);
+          d = temp_d>0.01 ? temp_d : 0.01;
+          
+          temp_const = GRAVCONST / (d*d*d);
+          temp_ai = temp_const * particles[j].mass;
+          temp_aj = temp_const * mass_i; ;
+
+	        // calculate acceleration due to the force, F
+          ax_i += temp_ai * dx;
+          ay_i += temp_ai * dy;
+	        az_i += temp_ai * dz;
+	        
+          particles[j].vx -= temp_aj * dx;
+          particles[j].vy -= temp_aj * dy;
+          particles[j].vz -= temp_aj * dz;
+      } 
       particles[i].vx += ax_i;
       particles[i].vy += ay_i;
       particles[i].vz += az_i;
@@ -173,8 +150,7 @@ int main(int argc, char* argv[]) {
       particles[i].y = particles[i].old_y + particles[i].vy;
       particles[i].z = particles[i].old_z + particles[i].vz;
 
-    } 
-    // end of LOOP 2
+    } // end of LOOP 2
     //DEBUG: output_particles(x,y,z, vx,vy,vz, mass, num);    
     // output a metric (centre of mass) for checking
     calc_centre_mass(com, particles,totalMass,num);
@@ -226,43 +202,3 @@ void calc_centre_mass(double *com,Particle* particles, double totalMass, int N) 
     com[2] /= totalMass;
   return;
 }
-
-void* calc_force(void* args){
-  ThreadArgs* targs = (ThreadArgs*) args;
-  Particle* particles = targs->particles;
-  int num = targs->num;
-  int start = targs->start;
-  int step = targs->step;
-  int t = targs->thread_id;
-  double* a_i = targs->a_accs;
-
-  
-  for (int j=start; j<=num; j+=step) {
-
-    double dx = particles[j].old_x - targs->x_i;
-    double dy = particles[j].old_y - targs->y_i;
-    double dz = particles[j].old_z - targs->z_i;
-
-    double temp_d =sqrt(dx*dx + dy*dy + dz*dz);
-    double d = temp_d>0.01 ? temp_d : 0.01;
-    
-    double temp_const = GRAVCONST / (d*d*d);
-    double temp_ai = temp_const * particles[j].mass;
-    double temp_aj = temp_const * targs->mass_i; ;
-
-    // calculate acceleration due to the force, F
-    a_i[t*3 + 0] += temp_ai * dx;
-    a_i[t*3 + 1] += temp_ai * dy;
-    a_i[t*3 + 2] += temp_ai * dz;
-    
-    particles[j].vx -= temp_aj * dx;
-    particles[j].vy -= temp_aj * dy;
-    particles[j].vz -= temp_aj * dz;
-
-  } 
-
-  return (void*) a_i;
-
-}
-
-

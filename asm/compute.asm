@@ -70,7 +70,7 @@ compute_timestep:
     inc     rdx             ; j = i + 1
 
     ; Align inner loop for better performance
-    align 64
+    align 16
 .inner_loop:
     cmp     rdx, r13        ; compare j with num
     jge     .inner_loop_end ; if j >= num, end inner loop
@@ -123,9 +123,9 @@ compute_timestep:
     vfnmadd123sd xmm2, xmm5,[r12 + rbx + 48]     ; vz_j -= dz * (G*m_i/d^3)
     
     ; Store updated velocities for particle j
-    vmovsd  [r12 + rbx + 32], xmm0asm/compute.asm    ; store vx_j
-    vmovsd  [r12 + rbx + 40], xmm1asm/compute.asm    ; store vy_j
-    vmovsd  [r12 + rbx + 48], xmm2asm/compute.asm    ; store vz_j
+    vmovsd  [r12 + rbx + 32], xmm0    ; store vx_j
+    vmovsd  [r12 + rbx + 40], xmm1    ; store vy_j
+    vmovsd  [r12 + rbx + 48], xmm2    ; store vz_j
 
     inc     rdx
     jmp     .inner_loop
