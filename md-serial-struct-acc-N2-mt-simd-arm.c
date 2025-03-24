@@ -1,0 +1,305 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <sys/time.h> // for wallclock timing functions
+#include <pthread.h>
+#include <arm_neon.h>  // ARM NEON intrinsics instead of immintrin.h
+
+/*
+   hard-wire simulation parameters
+*/
+#define NUM 20000
+#define TS 10
+#define THREAD_COUNT 8
+#define GRAVCONST 0.001
+
+typedef struct {
+    double* mass;  // Masses
+    double* old_x; // Old positions
+    double* old_y;
+    double* old_z;
+    double* x;     // Current positions
+    double* y;
+    double* z;
+    double* vx;    // Velocities
+    double* vy;
+    double* vz;
+    int num;       // Number of particles
+} Particle;
+
+typedef struct {
+    Particle* particles;
+    int start;
+    int stop;
+    int thread_id;
+    double* accelerations;
+} ThreadArgs;
+
+void* calc_force(void* args);
+int init(Particle* particles, int num);
+void calc_centre_mass(double* com, Particle* particles, double totalMass, int N);
+static inline double vaddvq_f64_sum(float64x2_t v);
+
+int main(int argc, char *argv[]) {
+    int i, j;
+    int num;             // user defined (argv[1]) total number of gas molecules in simulation
+    int time, timesteps; // for time stepping, including user defined (argv[2]) number of timesteps to integrate
+    int rc;              // return code
+    double dx, dy, dz, d, F;
+    double totalMass;
+    double com[3];
+
+    /* vars for timing */
+    struct timeval wallStart, wallEnd;
+    gettimeofday(&wallStart, NULL); // save start time in 'wallStart'
+
+    /* determine size of particles */
+    num = NUM;
+    timesteps = TS;
+
+    printf("Initializing for %d particles in x,y,z space...", num);
+
+    /* malloc arrays for particle particles */
+    Particle particles;
+    particles.num = num;
+    particles.x = (double*)malloc(num * sizeof(double));
+    particles.y = (double*)malloc(num * sizeof(double));
+    particles.z = (double*)malloc(num * sizeof(double));
+    particles.old_x = (double*)malloc(num * sizeof(double));
+    particles.old_y = (double*)malloc(num * sizeof(double));
+    particles.old_z = (double*)malloc(num * sizeof(double));
+    particles.vx = (double*)malloc(num * sizeof(double));
+    particles.vy = (double*)malloc(num * sizeof(double));
+    particles.vz = (double*)malloc(num * sizeof(double));
+    particles.mass = (double*)malloc(num * sizeof(double));
+
+    // Check if any malloc failed
+    if (!particles.x || !particles.y || !particles.z || !particles.old_x || !particles.old_y || 
+        !particles.old_z || !particles.vx || !particles.vy || !particles.vz || !particles.mass) {
+        printf("\n ERROR in malloc - aborting\n");
+        return -99;
+    } else {
+        printf("  (malloc-ed)  ");
+    }
+
+    // initialise
+    rc = init(&particles, num);
+    if (rc != 0) {
+        printf("\n ERROR during init() - aborting\n");
+        return -99;
+    } else {
+        printf("  INIT COMPLETE\n");
+    }
+
+    totalMass = 0.0;
+    for (i = 0; i < num; i++) {
+        totalMass += particles.mass[i];
+    }
+
+    // output a metric (centre of mass) for checking
+    calc_centre_mass(com, &particles, totalMass, num);
+    printf("At t=0, centre of mass = (%g,%g,%g)\n", com[0], com[1], com[2]);
+
+    printf("Now to integrate for %d timesteps\n", timesteps);
+    double* accelerations = (double*)calloc(num * 3, sizeof(double));
+    
+    for (time = 1; time <= timesteps; time++) {
+        // LOOP1: take snapshot to use on RHS when looping for updates
+        for (i = 0; i < num; i++) {
+            particles.old_x[i] = particles.x[i];
+            particles.old_y[i] = particles.y[i];
+            particles.old_z[i] = particles.z[i];
+            accelerations[i * 3 + 0] = 0.0;
+            accelerations[i * 3 + 1] = 0.0;
+            accelerations[i * 3 + 2] = 0.0;
+        }
+
+        pthread_t threads[THREAD_COUNT];
+        ThreadArgs thread_args[THREAD_COUNT];
+
+        for (int t = 0; t < THREAD_COUNT; t++) {
+            int start = (num/THREAD_COUNT)*t;
+            int stop = (num/THREAD_COUNT)*(t+1);
+            thread_args[t] = (ThreadArgs){&particles, start, stop, t, accelerations};
+            pthread_create(&threads[t], NULL, calc_force, (void*)&thread_args[t]);
+        }
+
+        for (int t = 0; t < THREAD_COUNT; t++) {
+            pthread_join(threads[t], NULL);
+        }
+
+        //LOOP3: update position etc per particle
+        for (int i = 0; i < num; i++) {
+            particles.vx[i] += accelerations[i * 3 + 0];
+            particles.vy[i] += accelerations[i * 3 + 1];
+            particles.vz[i] += accelerations[i * 3 + 2];
+            // calc new position
+            particles.x[i] = particles.old_x[i] + particles.vx[i];
+            particles.y[i] = particles.old_y[i] + particles.vy[i];
+            particles.z[i] = particles.old_z[i] + particles.vz[i];
+        }
+
+        
+        calc_centre_mass(com, &particles, totalMass, num);
+        printf("End of timestep %d, centre of mass = (%.3f,%.3f,%.3f)\n", time, com[0], com[1], com[2]);
+    }
+    free(accelerations);
+
+    gettimeofday(&wallEnd, NULL);
+    double wallSecs = (wallEnd.tv_sec - wallStart.tv_sec);
+    double WALLtimeTaken = 1.0E-06 * ((wallSecs * 1000000) + (wallEnd.tv_usec - wallStart.tv_usec));
+
+    printf("Time to init+solve %d molecules for %d timesteps is %g seconds\n", num, timesteps, WALLtimeTaken);
+    calc_centre_mass(com, &particles, totalMass, num);
+    printf("Centre of mass = (%.5f,%.5f,%.5f)\n", com[0], com[1], com[2]);
+
+    // Free memory
+    free(particles.x);
+    free(particles.y);
+    free(particles.z);
+    free(particles.old_x);
+    free(particles.old_y);
+    free(particles.old_z);
+    free(particles.vx);
+    free(particles.vy);
+    free(particles.vz);
+    free(particles.mass);
+
+    return 0;
+}
+
+int init(Particle* particles, int num) {
+    int i;
+    double min_pos = -50.0, mult = +100.0, maxVel = +5.0;
+    double recip = 1.0 / (double)RAND_MAX;
+
+    for (i = 0; i < num; i++) {
+        particles->x[i] = min_pos + mult * (double)rand() * recip;
+        particles->y[i] = min_pos + mult * (double)rand() * recip;
+        particles->z[i] = 0.0 + mult * (double)rand() * recip;
+        particles->vx[i] = -maxVel + 2.0 * maxVel * (double)rand() * recip;
+        particles->vy[i] = -maxVel + 2.0 * maxVel * (double)rand() * recip;
+        particles->vz[i] = -maxVel + 2.0 * maxVel * (double)rand() * recip;
+        particles->mass[i] = 0.1 + 10 * (double)rand() * recip; // mass is 0.1 up to 10.1
+    }
+    return 0;
+}
+
+void calc_centre_mass(double* com, Particle* particles, double totalMass, int N) {
+    int i;
+    com[0] = 0.0;
+    com[1] = 0.0;
+    com[2] = 0.0;
+    for (i = 0; i < N; i++) {
+        com[0] += particles->mass[i] * particles->x[i];
+        com[1] += particles->mass[i] * particles->y[i];
+        com[2] += particles->mass[i] * particles->z[i];
+    }
+    com[0] /= totalMass;
+    com[1] /= totalMass;
+    com[2] /= totalMass;
+}
+
+void* calc_force(void* args) {
+    ThreadArgs* targs = (ThreadArgs*)args;
+    Particle* particles = targs->particles;
+    int num = particles->num;
+    int start = targs->start;
+    int stop = targs->stop;
+    double* accelerations = targs->accelerations;
+
+    // ARM NEON implementation
+    for (int i = start; i < stop; i+=2) {
+        // Create vectors with repeated values for particle i
+        float64x2_t x_i = vdupq_n_f64(particles->x[i]);
+        float64x2_t y_i = vdupq_n_f64(particles->y[i]);
+        float64x2_t z_i = vdupq_n_f64(particles->z[i]);
+
+        // Create vectors with repeated values for particle i+1
+        float64x2_t x_i2 = vdupq_n_f64(particles->x[i+1]);
+        float64x2_t y_i2 = vdupq_n_f64(particles->y[i+1]);
+        float64x2_t z_i2 = vdupq_n_f64(particles->z[i+1]);
+
+        // Process particles in pairs (NEON processes 2 doubles at a time)
+        for (int j = 0; j < num; j += 2) {
+            // Load position and mass data for particles j and j+1
+            float64x2_t old_x = vld1q_f64(&particles->old_x[j]);
+            float64x2_t old_y = vld1q_f64(&particles->old_y[j]);
+            float64x2_t old_z = vld1q_f64(&particles->old_z[j]);
+            float64x2_t mass = vld1q_f64(&particles->mass[j]);
+
+            // Calculate distance vectors for particle i
+            float64x2_t dx = vsubq_f64(old_x, x_i);
+            float64x2_t dy = vsubq_f64(old_y, y_i);
+            float64x2_t dz = vsubq_f64(old_z, z_i);
+
+            // Calculate distance vectors for particle i+1
+            float64x2_t dx2 = vsubq_f64(old_x, x_i2);
+            float64x2_t dy2 = vsubq_f64(old_y, y_i2);
+            float64x2_t dz2 = vsubq_f64(old_z, z_i2);
+            
+            // Calculate squared distances
+            float64x2_t dx_sq = vmulq_f64(dx, dx);
+            float64x2_t dy_sq = vmulq_f64(dy, dy);
+            float64x2_t dz_sq = vmulq_f64(dz, dz);
+            
+            float64x2_t dx2_sq = vmulq_f64(dx2, dx2);
+            float64x2_t dy2_sq = vmulq_f64(dy2, dy2);
+            float64x2_t dz2_sq = vmulq_f64(dz2, dz2);
+            
+            // Sum of squares for distance calculation
+            float64x2_t d_sq = vaddq_f64(dx_sq, vaddq_f64(dy_sq, dz_sq));
+            float64x2_t d2_sq = vaddq_f64(dx2_sq, vaddq_f64(dy2_sq, dz2_sq));
+            
+            // Calculate distance (sqrt of sum of squares)
+            float64x2_t sqrt_d = vsqrtq_f64(d_sq);
+            float64x2_t sqrt_d2 = vsqrtq_f64(d2_sq);
+            
+            // Apply minimum distance threshold (0.01)
+            float64x2_t min_dist = vdupq_n_f64(0.01);
+            float64x2_t d = vmaxq_f64(sqrt_d, min_dist);
+            float64x2_t d_2 = vmaxq_f64(sqrt_d2, min_dist);
+            
+            // Calculate d^2 and d^3
+            float64x2_t d2 = vmulq_f64(d, d);
+            float64x2_t d2_2 = vmulq_f64(d_2, d_2);
+            float64x2_t d3 = vmulq_f64(d2, d);
+            float64x2_t d3_2 = vmulq_f64(d2_2, d_2);
+            
+            // Calculate GRAVCONST/d^3
+            float64x2_t grav_const = vdupq_n_f64(GRAVCONST);
+            float64x2_t d3_inv = vdivq_f64(grav_const, d3);
+            float64x2_t d3_inv_2 = vdivq_f64(grav_const, d3_2);
+            
+            // Calculate acceleration factors
+            float64x2_t temp_ai = vmulq_f64(d3_inv, mass);
+            float64x2_t temp_ai_2 = vmulq_f64(d3_inv_2, mass);
+            
+            // Calculate acceleration components and accumulate
+            float64x2_t ax = vmulq_f64(temp_ai, dx);
+            float64x2_t ay = vmulq_f64(temp_ai, dy);
+            float64x2_t az = vmulq_f64(temp_ai, dz);
+            
+            float64x2_t ax2 = vmulq_f64(temp_ai_2, dx2);
+            float64x2_t ay2 = vmulq_f64(temp_ai_2, dy2);
+            float64x2_t az2 = vmulq_f64(temp_ai_2, dz2);
+            
+            // Sum the vector components and add to acceleration arrays
+            accelerations[i * 3 + 0] += vaddvq_f64_sum(ax);
+            accelerations[i * 3 + 1] += vaddvq_f64_sum(ay);
+            accelerations[i * 3 + 2] += vaddvq_f64_sum(az);
+            
+            accelerations[(i+1) * 3 + 0] += vaddvq_f64_sum(ax2);
+            accelerations[(i+1) * 3 + 1] += vaddvq_f64_sum(ay2);
+            accelerations[(i+1) * 3 + 2] += vaddvq_f64_sum(az2);
+        }
+    }
+    return NULL;
+}
+
+// Helper function to sum elements in a NEON vector
+static inline double vaddvq_f64_sum(float64x2_t v) {
+    double result[2];
+    vst1q_f64(result, v);
+    return result[0] + result[1];
+}
