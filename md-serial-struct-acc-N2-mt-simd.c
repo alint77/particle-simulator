@@ -251,14 +251,6 @@ void* calc_force(void* args) {
             __m256d temp_ai = _mm256_mul_pd(d3_inv, mass);
             __m256d temp_ai_2 = _mm256_mul_pd(d3_inv_2, mass);
 
-            // // Skip self-interactions
-            // __m256d mask = _mm256_castsi256_pd(_mm256_setr_epi64x(
-            //     (j+0 != i) ? -1LL : 0LL,
-            //     (j+1 != i) ? -1LL : 0LL,
-            //     (j+2 != i) ? -1LL : 0LL,
-            //     (j+3 != i) ? -1LL : 0LL
-            // ));
-            
             accelerations[i * 3 + 0] += hsums(_mm256_mul_pd(temp_ai, dx));
             accelerations[i * 3 + 1] += hsums(_mm256_mul_pd(temp_ai, dy));
             accelerations[i * 3 + 2] += hsums(_mm256_mul_pd(temp_ai, dz));

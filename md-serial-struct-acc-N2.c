@@ -130,8 +130,7 @@ int main(int argc, char *argv[])
       // calc forces on body i due to particles (j != i)
       for (j = 0; j < num; j++)
       {
-        if (j != i)
-        {
+        
           dx = particles[j].old_x - x_i;
           dy = particles[j].old_y - y_i;
           dz = particles[j].old_z - z_i;
@@ -154,7 +153,6 @@ int main(int argc, char *argv[])
           accelerations[(i+1) * 3 + 1] += temp_ai2 * dy2;
           accelerations[(i+1) * 3 + 2] += temp_ai2 * dz2;
 
-        }
       }
     } // end of LOOP 2
     //ABOVE PART CAN BE PARALLELISED
