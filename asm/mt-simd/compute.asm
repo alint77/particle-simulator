@@ -95,7 +95,7 @@ calc_force_asm:
     vxorpd ymm13, ymm13, ymm13    ; ymm13 = 0 (acceleration z)
 
     ; ymm6 - 7 are free
-
+align 16
 .inner_loop:
     ; Check if we've processed all particles
     cmp rbp, r13

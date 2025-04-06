@@ -41,11 +41,9 @@ void calc_centre_mass(double* com, Particle* particles, double totalMass, int N)
 static inline double hsums(__m256d a);
 
 int main(int argc, char *argv[]) {
-    int i, j;
     int num;             // user defined (argv[1]) total number of gas molecules in simulation
     int time, timesteps; // for time stepping, including user defined (argv[2]) number of timesteps to integrate
     int rc;              // return code
-    double dx, dy, dz, d, F;
     double totalMass;
     double com[3];
 
@@ -92,7 +90,7 @@ int main(int argc, char *argv[]) {
     }
 
     totalMass = 0.0;
-    for (i = 0; i < num; i++) {
+    for (int i = 0; i < num; i++) {
         totalMass += particles.mass[i];
     }
 
@@ -105,7 +103,7 @@ int main(int argc, char *argv[]) {
     
     for (time = 1; time <= timesteps; time++) {
         // LOOP1: take snapshot to use on RHS when looping for updates
-        for (i = 0; i < num; i++) {
+        for (int i = 0; i < num; i++) {
             particles.old_x[i] = particles.x[i];
             particles.old_y[i] = particles.y[i];
             particles.old_z[i] = particles.z[i];
