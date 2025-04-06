@@ -8,7 +8,7 @@
 */
 #define NUM 20000
 #define TS 10
-#define THREAD_COUNT 16
+#define THREAD_COUNT 8
 #define GRAVCONST 0.001
 
 typedef struct
@@ -247,8 +247,7 @@ void* calc_force(void* args){
     // calc forces on body i due to particles (j != i)
     for (int j = 0; j < num; j++)
     {
-      if (j != i)
-      {
+      
         double old_xj = particles[j].old_x;
         double old_yj = particles[j].old_y;
         double old_zj = particles[j].old_z;
@@ -277,7 +276,6 @@ void* calc_force(void* args){
         accelerations[(i+1) * 3 + 0] += temp_ai2 * dx2;
         accelerations[(i+1) * 3 + 1] += temp_ai2 * dy2;
         accelerations[(i+1) * 3 + 2] += temp_ai2 * dz2;
-      }
     }
   } // end of LOOP 2
   //ABOVE PART CAN BE PARALLELISED

@@ -10,7 +10,7 @@
 */
 #define NUM 20000
 #define TS 10
-#define THREAD_COUNT 16
+#define THREAD_COUNT 8
 #define GRAVCONST 0.001
 
 typedef struct {

@@ -3,7 +3,7 @@
 #include <math.h>
 #include <sys/time.h> // for wallclock timing functions
 #include <pthread.h>
-#include <arm_neon.h>  // ARM NEON intrinsics instead of immintrin.h
+#include <arm_neon.h>  // ARM NEON intrinsics
 
 /*
    hard-wire simulation parameters
@@ -11,19 +11,19 @@
 #define NUM 20000
 #define TS 10
 #define THREAD_COUNT 8
-#define GRAVCONST 0.001
+#define GRAVCONST 0.001f
 
 typedef struct {
-    double* mass;  // Masses
-    double* old_x; // Old positions
-    double* old_y;
-    double* old_z;
-    double* x;     // Current positions
-    double* y;
-    double* z;
-    double* vx;    // Velocities
-    double* vy;
-    double* vz;
+    float* mass;   // Masses
+    float* old_x;  // Old positions
+    float* old_y;
+    float* old_z;
+    float* x;      // Current positions
+    float* y;
+    float* z;
+    float* vx;     // Velocities
+    float* vy;
+    float* vz;
     int num;       // Number of particles
 } Particle;
 
@@ -32,22 +32,22 @@ typedef struct {
     int start;
     int stop;
     int thread_id;
-    double* accelerations;
+    float* accelerations;
 } ThreadArgs;
 
 void* calc_force(void* args);
 int init(Particle* particles, int num);
-void calc_centre_mass(double* com, Particle* particles, double totalMass, int N);
-static inline double vaddvq_f64_sum(float64x2_t v);
+void calc_centre_mass(float* com, Particle* particles, float totalMass, int N);
+static inline float vaddvq_f32_sum(float32x4_t v);
 
 int main(int argc, char *argv[]) {
     int i, j;
     int num;             // user defined (argv[1]) total number of gas molecules in simulation
     int time, timesteps; // for time stepping, including user defined (argv[2]) number of timesteps to integrate
     int rc;              // return code
-    double dx, dy, dz, d, F;
-    double totalMass;
-    double com[3];
+    float dx, dy, dz, d, F;
+    float totalMass;
+    float com[3];
 
     /* vars for timing */
     struct timeval wallStart, wallEnd;
@@ -62,16 +62,16 @@ int main(int argc, char *argv[]) {
     /* malloc arrays for particle particles */
     Particle particles;
     particles.num = num;
-    particles.x = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.y = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.z = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.old_x = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.old_y = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.old_z = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.vx = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.vy = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.vz = (double*)aligned_alloc(32,num * sizeof(double));
-    particles.mass = (double*)aligned_alloc(32,num * sizeof(double));
+    particles.x = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.y = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.z = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.old_x = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.old_y = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.old_z = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.vx = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.vy = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.vz = (float*)aligned_alloc(32,num * sizeof(float));
+    particles.mass = (float*)aligned_alloc(32,num * sizeof(float));
 
     // Check if any malloc failed
     if (!particles.x || !particles.y || !particles.z || !particles.old_x || !particles.old_y || 
@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
         printf("  INIT COMPLETE\n");
     }
 
-    totalMass = 0.0;
+    totalMass = 0.0f;
     for (i = 0; i < num; i++) {
         totalMass += particles.mass[i];
     }
@@ -101,7 +101,7 @@ int main(int argc, char *argv[]) {
     printf("At t=0, centre of mass = (%g,%g,%g)\n", com[0], com[1], com[2]);
 
     printf("Now to integrate for %d timesteps\n", timesteps);
-    double* accelerations = (double*)calloc(num * 3, sizeof(double));
+    float* accelerations = (float*)calloc(num * 3, sizeof(float));
     
     for (time = 1; time <= timesteps; time++) {
         // LOOP1: take snapshot to use on RHS when looping for updates
@@ -109,9 +109,9 @@ int main(int argc, char *argv[]) {
             particles.old_x[i] = particles.x[i];
             particles.old_y[i] = particles.y[i];
             particles.old_z[i] = particles.z[i];
-            accelerations[i * 3 + 0] = 0.0;
-            accelerations[i * 3 + 1] = 0.0;
-            accelerations[i * 3 + 2] = 0.0;
+            accelerations[i * 3 + 0] = 0.0f;
+            accelerations[i * 3 + 1] = 0.0f;
+            accelerations[i * 3 + 2] = 0.0f;
         }
 
         pthread_t threads[THREAD_COUNT];
@@ -170,26 +170,26 @@ int main(int argc, char *argv[]) {
 
 int init(Particle* particles, int num) {
     int i;
-    double min_pos = -50.0, mult = +100.0, maxVel = +5.0;
-    double recip = 1.0 / (double)RAND_MAX;
+    float min_pos = -50.0f, mult = +100.0f, maxVel = +5.0f;
+    float recip = 1.0f / (float)RAND_MAX;
 
     for (i = 0; i < num; i++) {
-        particles->x[i] = min_pos + mult * (double)rand() * recip;
-        particles->y[i] = min_pos + mult * (double)rand() * recip;
-        particles->z[i] = 0.0 + mult * (double)rand() * recip;
-        particles->vx[i] = -maxVel + 2.0 * maxVel * (double)rand() * recip;
-        particles->vy[i] = -maxVel + 2.0 * maxVel * (double)rand() * recip;
-        particles->vz[i] = -maxVel + 2.0 * maxVel * (double)rand() * recip;
-        particles->mass[i] = 0.1 + 10 * (double)rand() * recip; // mass is 0.1 up to 10.1
+        particles->x[i] = min_pos + mult * (float)rand() * recip;
+        particles->y[i] = min_pos + mult * (float)rand() * recip;
+        particles->z[i] = 0.0f + mult * (float)rand() * recip;
+        particles->vx[i] = -maxVel + 2.0f * maxVel * (float)rand() * recip;
+        particles->vy[i] = -maxVel + 2.0f * maxVel * (float)rand() * recip;
+        particles->vz[i] = -maxVel + 2.0f * maxVel * (float)rand() * recip;
+        particles->mass[i] = 0.1f + 10.0f * (float)rand() * recip; // mass is 0.1 up to 10.1
     }
     return 0;
 }
 
-void calc_centre_mass(double* com, Particle* particles, double totalMass, int N) {
+void calc_centre_mass(float* com, Particle* particles, float totalMass, int N) {
     int i;
-    com[0] = 0.0;
-    com[1] = 0.0;
-    com[2] = 0.0;
+    com[0] = 0.0f;
+    com[1] = 0.0f;
+    com[2] = 0.0f;
     for (i = 0; i < N; i++) {
         com[0] += particles->mass[i] * particles->x[i];
         com[1] += particles->mass[i] * particles->y[i];
@@ -206,90 +206,91 @@ void* calc_force(void* args) {
     int num = particles->num;
     int start = targs->start;
     int stop = targs->stop;
-    double* accelerations = targs->accelerations;
+    float* accelerations = targs->accelerations;
 
-    // ARM NEON implementation
+    // ARM NEON implementation with float32
     for (int i = start; i < stop; i+=2) {
         // Create vectors with repeated values for particle i
-        float64x2_t x_i = vdupq_n_f64(particles->x[i]);
-        float64x2_t y_i = vdupq_n_f64(particles->y[i]);
-        float64x2_t z_i = vdupq_n_f64(particles->z[i]);
+        float32x4_t x_i = vdupq_n_f32(particles->x[i]);
+        float32x4_t y_i = vdupq_n_f32(particles->y[i]);
+        float32x4_t z_i = vdupq_n_f32(particles->z[i]);
 
         // Create vectors with repeated values for particle i+1
-        float64x2_t x_i2 = vdupq_n_f64(particles->x[i+1]);
-        float64x2_t y_i2 = vdupq_n_f64(particles->y[i+1]);
-        float64x2_t z_i2 = vdupq_n_f64(particles->z[i+1]);
+        float32x4_t x_i2 = vdupq_n_f32(particles->x[i+1]);
+        float32x4_t y_i2 = vdupq_n_f32(particles->y[i+1]);
+        float32x4_t z_i2 = vdupq_n_f32(particles->z[i+1]);
 
-        // Process particles in pairs (NEON processes 2 doubles at a time)
-        for (int j = 0; j < num; j += 2) {
-            // Load position and mass data for particles j and j+1
-            float64x2_t old_x = vld1q_f64(&particles->old_x[j]);
-            float64x2_t old_y = vld1q_f64(&particles->old_y[j]);
-            float64x2_t old_z = vld1q_f64(&particles->old_z[j]);
-            float64x2_t mass = vld1q_f64(&particles->mass[j]);
+        // Process particles in groups of 4 (NEON processes 4 floats at a time)
+        for (int j = 0; j < num; j += 4) {
+
+            float32x4_t old_x = vld1q_f32(&particles->old_x[j]);
+            float32x4_t old_y = vld1q_f32(&particles->old_y[j]);
+            float32x4_t old_z = vld1q_f32(&particles->old_z[j]);
+            float32x4_t mass = vld1q_f32(&particles->mass[j]);
 
             // Calculate distance vectors for particle i
-            float64x2_t dx = vsubq_f64(old_x, x_i);
-            float64x2_t dy = vsubq_f64(old_y, y_i);
-            float64x2_t dz = vsubq_f64(old_z, z_i);
+            float32x4_t dx = vsubq_f32(old_x, x_i);
+            float32x4_t dy = vsubq_f32(old_y, y_i);
+            float32x4_t dz = vsubq_f32(old_z, z_i);
 
             // Calculate distance vectors for particle i+1
-            float64x2_t dx2 = vsubq_f64(old_x, x_i2);
-            float64x2_t dy2 = vsubq_f64(old_y, y_i2);
-            float64x2_t dz2 = vsubq_f64(old_z, z_i2);
+            float32x4_t dx2 = vsubq_f32(old_x, x_i2);
+            float32x4_t dy2 = vsubq_f32(old_y, y_i2);
+            float32x4_t dz2 = vsubq_f32(old_z, z_i2);
             
             // Sum of squares for distance calculation
-            float64x2_t d_sq = vmlaq_f64(vmlaq_f64(vmulq_f64(dx, dx), dy, dy), dz, dz);
-            float64x2_t d2_sq = vmlaq_f64(vmlaq_f64(vmulq_f64(dx2, dx2), dy2, dy2), dz2, dz2);
-            
+            float32x4_t d_sq = vmlaq_f32(vmlaq_f32(vmulq_f32(dx, dx), dy, dy), dz, dz);          
+            float32x4_t d2_sq = vmlaq_f32(vmlaq_f32(vmulq_f32(dx2, dx2), dy2, dy2), dz2, dz2); 
+
             // Calculate distance (sqrt of sum of squares)
-            float64x2_t sqrt_d = vsqrtq_f64(d_sq);
-            float64x2_t sqrt_d2 = vsqrtq_f64(d2_sq);
+            float32x4_t sqrt_d = vsqrtq_f32(d_sq);
+            float32x4_t sqrt_d2 = vsqrtq_f32(d2_sq);
             
             // Apply minimum distance threshold (0.01)
-            float64x2_t min_dist = vdupq_n_f64(0.01);
-            float64x2_t d = vmaxq_f64(sqrt_d, min_dist);
-            float64x2_t d_2 = vmaxq_f64(sqrt_d2, min_dist);
+            float32x4_t min_dist = vdupq_n_f32(0.01f);
+            float32x4_t d = vmaxq_f32(sqrt_d, min_dist);
+            float32x4_t d_2 = vmaxq_f32(sqrt_d2, min_dist);
             
             // Calculate d^2 and d^3
-            float64x2_t d3 = vmulq_f64(d, vmulq_f64(d, d));
-            float64x2_t d3_2 = vmulq_f64(d_2, vmulq_f64(d_2, d_2));
+            float32x4_t d2 = vmulq_f32(d, d);
+            float32x4_t d2_2 = vmulq_f32(d_2, d_2);
+            float32x4_t d3 = vmulq_f32(d2, d);
+            float32x4_t d3_2 = vmulq_f32(d2_2, d_2);
             
             // Calculate GRAVCONST/d^3
-            float64x2_t grav_const = vdupq_n_f64(GRAVCONST);
-            float64x2_t d3_inv = vdivq_f64(grav_const, d3);
-            float64x2_t d3_inv_2 = vdivq_f64(grav_const, d3_2);
+            float32x4_t grav_const = vdupq_n_f32(GRAVCONST);
+            float32x4_t d3_inv = vdivq_f32(grav_const, d3);
+            float32x4_t d3_inv_2 = vdivq_f32(grav_const, d3_2);
             
             // Calculate acceleration factors
-            float64x2_t temp_ai = vmulq_f64(d3_inv, mass);
-            float64x2_t temp_ai_2 = vmulq_f64(d3_inv_2, mass);
+            float32x4_t temp_ai = vmulq_f32(d3_inv, mass);
+            float32x4_t temp_ai_2 = vmulq_f32(d3_inv_2, mass);
             
             // Calculate acceleration components and accumulate
-            float64x2_t ax = vmulq_f64(temp_ai, dx);
-            float64x2_t ay = vmulq_f64(temp_ai, dy);
-            float64x2_t az = vmulq_f64(temp_ai, dz);
-
+            float32x4_t ax = vmulq_f32(temp_ai, dx);
+            float32x4_t ay = vmulq_f32(temp_ai, dy);
+            float32x4_t az = vmulq_f32(temp_ai, dz);
+            
+            float32x4_t ax2 = vmulq_f32(temp_ai_2, dx2);
+            float32x4_t ay2 = vmulq_f32(temp_ai_2, dy2);
+            float32x4_t az2 = vmulq_f32(temp_ai_2, dz2);
+            
             // Sum the vector components and add to acceleration arrays
-            accelerations[i * 3 + 0] += vaddvq_f64_sum(ax);
-            accelerations[i * 3 + 1] += vaddvq_f64_sum(ay);
-            accelerations[i * 3 + 2] += vaddvq_f64_sum(az);
+            accelerations[i * 3 + 0] += vaddvq_f32(ax);
+            accelerations[i * 3 + 1] += vaddvq_f32(ay);
+            accelerations[i * 3 + 2] += vaddvq_f32(az);
             
-            float64x2_t ax2 = vmulq_f64(temp_ai_2, dx2);
-            float64x2_t ay2 = vmulq_f64(temp_ai_2, dy2);
-            float64x2_t az2 = vmulq_f64(temp_ai_2, dz2);
-
-            accelerations[(i+1) * 3 + 0] += vaddvq_f64_sum(ax2);
-            accelerations[(i+1) * 3 + 1] += vaddvq_f64_sum(ay2);
-            accelerations[(i+1) * 3 + 2] += vaddvq_f64_sum(az2);
-            
+            accelerations[(i+1) * 3 + 0] += vaddvq_f32(ax2);
+            accelerations[(i+1) * 3 + 1] += vaddvq_f32(ay2);
+            accelerations[(i+1) * 3 + 2] += vaddvq_f32(az2);
         }
     }
     return NULL;
 }
 
 // Helper function to sum elements in a NEON vector
-static inline double vaddvq_f64_sum(float64x2_t v) {
-    double result[2];
-    vst1q_f64(result, v);
-    return result[0] + result[1];
+static inline float vaddvq_f32_sum(float32x4_t v) {
+    float result[4];
+    vst1q_f32(result, v);
+    return result[0] + result[1] + result[2] + result[3];
 }
